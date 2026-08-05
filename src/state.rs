@@ -517,30 +517,10 @@ impl State {
 
     // ---------- 图标操作 ----------
 
-    /// 判断指定集合内是否存在同名快捷方式（可排除指定 id，用于改名场景）。
-    fn has_item_name(&self, collection: usize, name: &str, exclude_id: Option<&str>) -> bool {
-        let name = name.trim();
-        if name.is_empty() {
-            return false;
-        }
-        let data = self.data.borrow();
-        data.collections
-            .get(collection)
-            .map(|c| {
-                c.items
-                    .iter()
-                    .any(|i| i.name == name && exclude_id.is_none_or(|e| i.id != e))
-            })
-            .unwrap_or(false)
-    }
-
     pub fn add_item(&self, collection: usize, name: &str, target: &str) -> Option<Item> {
         let name = name.trim().to_string();
         let target = target.trim().to_string();
         if name.is_empty() || target.is_empty() {
-            return None;
-        }
-        if self.has_item_name(collection, &name, None) {
             return None;
         }
         let mut created: Option<Item> = None;
@@ -864,10 +844,6 @@ impl State {
                 name = f.to_string_lossy().to_string();
             }
         }
-        if self.has_item_name(collection, &name, None) {
-            self.set_error("集合中已存在同名快捷方式");
-            return false;
-        }
         if self.add_item(collection, &name, &target).is_none() {
             self.set_error("无法添加：名称或路径不能为空");
             return false;
@@ -900,10 +876,6 @@ impl State {
         let target = self.edit_target.get();
         if name.trim().is_empty() || target.trim().is_empty() {
             self.set_error("名称与目标路径不能为空");
-            return;
-        }
-        if self.has_item_name(collection, &name, Some(&id)) {
-            self.set_error("集合中已存在同名快捷方式");
             return;
         }
         self.dlg_item_props.set(false);
@@ -1306,31 +1278,38 @@ mod tests {
     }
 
     #[test]
-    fn add_item_rejects_duplicate_name() {
+    fn add_item_allows_same_name_distinct_id() {
         let st = State::new(sample_data());
-        assert!(st.add_item(0, "Code", "C:/dev/code.exe").is_none());
-        assert_eq!(st.data.borrow().collections[0].items.len(), 1);
+        let first = st.add_item(0, "Code", "C:/dev/code.exe").expect("同名应可添加");
+        let second = st
+            .add_item(0, "Code", "C:/dev/other/code.exe")
+            .expect("同名不同路径应可添加");
+        assert_ne!(first.id, second.id, "同名条目应分配不同 id");
+        assert_eq!(st.data.borrow().collections[0].items.len(), 3);
     }
 
     #[test]
-    fn add_dropped_paths_skips_duplicates() {
-        let dir = std::env::temp_dir().join(format!("lucky_drop_dup_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let notepad = dir.join("Code.exe");
-        std::fs::write(&notepad, b"").unwrap();
-        let other = dir.join("other.exe");
-        std::fs::write(&other, b"").unwrap();
+    fn add_dropped_paths_allows_same_name() {
+        let base =
+            std::env::temp_dir().join(format!("lucky_drop_same_{}", std::process::id()));
+        let dir_a = base.join("a");
+        let dir_b = base.join("b");
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+        let exe_a = dir_a.join("Code.exe");
+        let exe_b = dir_b.join("Code.exe");
+        std::fs::write(&exe_a, b"").unwrap();
+        std::fs::write(&exe_b, b"").unwrap();
 
         let st = State::new(sample_data());
-        let (added, skipped) = st.add_dropped_paths(&[notepad.clone(), other.clone()]);
-        assert_eq!(added, 1);
-        assert_eq!(skipped, 1);
-        assert_eq!(st.data.borrow().collections[0].items.len(), 2);
-        std::fs::remove_dir_all(&dir).ok();
+        let (added, skipped) = st.add_dropped_paths(&[exe_a.clone(), exe_b.clone()]);
+        assert_eq!(added, 2);
+        assert_eq!(skipped, 0);
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]
-    fn commit_item_props_rejects_rename_to_duplicate() {
+    fn commit_item_props_allows_rename_to_same_name() {
         let mut data = sample_data();
         data.collections[0]
             .items
@@ -1340,8 +1319,8 @@ mod tests {
         st.open_item_props(&code_id);
         st.edit_name.set("微信".to_string());
         st.commit_item_props();
-        assert!(st.dlg_item_props.get());
-        assert_eq!(st.data.borrow().collections[0].items[0].name, "Code");
+        assert!(!st.dlg_item_props.get());
+        assert_eq!(st.data.borrow().collections[0].items[0].name, "微信");
     }
 
     #[test]
