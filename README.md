@@ -1,4 +1,5 @@
 # 幸运启动器
+一款精简的快捷启动器，无其他功能。
 
 使用[wind-ui-rust](https://github.com/huanfeng/wind-ui-rust) GUi框架开发的桌面启动器
 
